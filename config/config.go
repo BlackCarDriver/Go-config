@@ -7,139 +7,103 @@ import(
 	"os"
 	"io"
 	
-	"io/ioutil"
+	"errors"
 	"strings"
 	"bufio"
 	"bytes"
-	"log"
 )
-
-var rootPath = "./config/conf/"
-
-//confFileName save the file name that already used by Config
-var confFileName = make(map[string]bool)
-
-var ConfigSaver = make(map[string]Config)
-
-//a Config behalf of an config file, all config files should save in an same floder
-//fileName is the name of config files such as database.conf
+/*
+explain of Config struct:
+	configPath is the root path of config files, all files with .conf suffix will be read into rawConf
+when the struct is init. 
+	rawConf is the map tmpely saving the string that read from config files, those string will not be
+used until you register then.
+	ripeConf is the map saving config value, those config is read from rawConf through Register()
+*/
 type Config struct{
-	fileName string
-	rawConf  map[string]string 
-	confMap  map[string]interface{}
-} 
-
-//set up the path of floder that saving the config files
-func SetRoot(root string){
-	if rootPath != "./config/conf/" {
-		log.Fatal("Can't call SetRoot() for twice! ")
-	}
-	_,err := ioutil.ReadDir(root)
-	if os.IsNotExist(err) {
-		wd,_ := os.Getwd()
-		fmt.Println("config rootPath not exist ! please check : wd is :",wd , " + ", root)
-		os.Exit(2)
-	}
-	rootPath = root
+	configPath string
+	rawConf map[string]string;
+	ripeConf map[string]interface{}
 }
 
-//Create an Config, fileName is the name of config file
-func NewConfig(fileName string)(c Config, err error){
-	if _,have := confFileName[fileName]; have {
-		log.Fatal("the config file already have been used ! filename: ",fileName)
-	}
-	filepath := rootPath + fileName
-	_, err = os.Open(filepath)
-	if err !=nil {
-		log.Fatal("config file not exist : ",err)
-	}
-	c.fileName = fileName
-	c.rawConf = make(map[string]string)
-	c.confMap = make(map[string]interface{})
-	c.readConf()
-	confFileName[fileName] = true
-	ConfigSaver[fileName] = c
-	return
+type ConfigMachine interface {
+	readAllConfig()	error
+	InitWithFilesPath(filesPath string) error
+	Register(keyName string , dfValue interface{}, isImportant bool)(err error, warn string)
+	Get(keyName string) (value interface{}, err error)
+	DisplyConfList()
 }
 
-//Get a Config that already create before
-func GetConfig(ConfigName string) Config {
-	c,ok := ConfigSaver[ConfigName]
+func (c *Config) InitWithFilesPath(Configpath string) error{
+	if c.configPath != "" {
+		return errors.New("You can't init the Confi twice!")
+	}
+	c.configPath = Configpath;
+	c.readAllConfig()
+	return nil
+}
+
+func (c *Config) Get(keyName string)(value interface{}, err error){
+	if keyName == "" {
+		err = errors.New("keyName is null")
+		return
+	}
+	value, ok := c.ripeConf[keyName]
 	if ok {
-		return c
+		err = nil
+		return
+	}else{
+		err = fmt.Errorf("KeyName %v not found in config list!", keyName)
+		return 
 	}
-	log.Fatal("Try to get a Config that do not exist! name :", ConfigName)
-	return c
 }
 
-//register a config on confmap, dfValue is default value, mainly used for defind the 
-//type of config value. if isstrict is true, the config value will be only read in config file
-//if isStrict is false, the config will use dfValue when config file don't exist confName
-func (c *Config) RegisterConf(confName string, dfValue interface{}, isStrict bool){
+func (c *Config) DisplyConfList(){
+	fmt.Println("============= rawConf ========")
+	for k,v := range c.rawConf {
+		fmt.Println(k, " ---> ",v)
+	}
+	fmt.Println("============ ripefMap ========")
+	for k,v := range c.ripeConf {
+		fmt.Println(k, " ---> ",v)
+	}
+}
+
+func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)(err error, warn string){
 	rawStr, ok := c.rawConf[confName]
-	if isStrict && !ok {
-		err := fmt.Errorf("Can't not load config %v from file!", confName)
-		panic(err)
+	if !ok && isStrict {	
+		err = fmt.Errorf("Can't not load config %v from file!", confName)
+		return
 	}
 	if !ok && !isStrict {
-		c.confMap[confName] = dfValue
+		c.ripeConf[confName] = dfValue
+		err = fmt.Errorf("Config %v not font in config files and we create it.", confName)
 		return
 	}
 	tyName := reflect.TypeOf(dfValue).Name()
-
 	switch tyName {
 	case "int":
 		tmpInt,err := strconv.Atoi(rawStr)
 		if err != nil {
 			panic(err)
 		}
-		c.confMap[confName] = tmpInt
+		c.ripeConf[confName] = tmpInt
 	case "string":
-		c.confMap[confName] = rawStr
+		c.ripeConf[confName] = rawStr
 	case "bool":
 		tmpBool, err := strconv.ParseBool(rawStr)
 		if err != nil {
 			panic(err)
 		}
-		c.confMap[confName] = tmpBool
+		c.ripeConf[confName] = tmpBool
 	}
-
 	return
 }
 
-//get a config value by name, if this name is not exist in confMap, it will call panic
-func (c *Config) Get(confName string) interface{} {
-	res, ok := c.confMap[confName]
-	if !ok {
-		err := fmt.Errorf("Config %v don't exit !", confName)
-		log.Fatal(err)
-	}
-	return res
-}
-
-//printf config map for test
-func (c *Config) DisplayConf(){
-	fmt.Println("============= rawConf ========")
-	for k,v := range c.rawConf {
-		fmt.Println(k, " ---> ",v)
-	}
-	fmt.Println("============ confMap ========")
-	for k,v := range c.confMap {
-		fmt.Println(k, " ---> ",v)
-	}
-}
-
-
-//================== private method =============================================
-
-
-//read config file and record thos values in rawConf, the type of those config as yet
-//are all strings, the config can be used only after RegisterConf() 
-func (c *Config) readConf() error {
-	file,err := os.Open(rootPath + c.fileName)
+func (c *Config)readAllConfig() error {
+	file,err := os.Open(c.configPath)
 	if err!=nil {
-		fmt.Println(err)
-		os.Exit(2)
+		return err
 	}
 	defer file.Close()
 	buf := bufio.NewReader(file)
