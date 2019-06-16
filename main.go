@@ -5,11 +5,5 @@ import(
 )
 
 func main(){
-	config.Test()
-}
-
-func testInit(){
-}
-
-func testUseage(){
+	config.Main()
 }

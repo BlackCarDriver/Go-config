@@ -12,17 +12,18 @@ import(
 	"bufio"
 	"regexp"
 )
-/*
-explain of Config struct:
-configPath is the root path of config files, all files with .conf suffix will be read into rawConf
-when the struct is init. 
-rawConf is the map tmpely saving the string that read from config files, those string will not be
-used until you register then.
-ripeConf is the map saving config value, those config is read from rawConf through Register()
-*/
 
+//recorde the filename that alread read, each file can only read once
 var readHistory = make(map[string]bool)
 
+/*
+explain of Config struct:
+	configPath is the root path of config files, all files with suffix ".conf" will be parse into rawConf
+when the struct is init. 
+	rawConf is the map tmpely saving the string that read from config files, those string will not be
+used until you register then.
+	ripeConf is the map saving config value, those config is read from rawConf through Register()
+*/
 type Config struct{
 	configPath string
 	rawConf map[string]string 
@@ -33,9 +34,10 @@ type ConfigMachine interface {
 	InitWithFilesPath(filesPath string) error
 	Register(keyName string , dfValue interface{}, isImportant bool) error
 	Get(keyName string) (value interface{}, err error)
-	String() string
+	Display() 
 }
 
+//the mainly way of obtain a Config
 func New(confPath string)(ConfigMachine, error) {
 	newMachine := new(Config)
 	err := newMachine.InitWithFilesPath(confPath)
@@ -55,17 +57,15 @@ func (c *Config) InitWithFilesPath(Configpath string) error{
 }
 
 func (c *Config) Get(keyName string)(value interface{}, err error){
-	if keyName == "" {
-		err = errors.New("keyName is null")
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not right!")
 		return
 	}
 	value, ok := c.ripeConf[keyName]
-	if ok {
-		return
-	}else{
+	if !ok {
 		err = fmt.Errorf("KeyName %v not found in config list!", keyName)
-		return 
 	}
+	return 
 }
 
 func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)( err error ){
@@ -132,17 +132,16 @@ func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)( 
 	return nil
 }
 
-func (c *Config) String() string{
-	tmpStr := "";
-	tmpStr += "\n============= rawConf ======== \n"
+//display the key name and value name in rawMap and ripeMap
+func (c *Config) Display(){
+	fmt.Println("============= rawConf ======== ")
 	for k,v := range c.rawConf {
-		tmpStr = fmt.Sprintf(tmpStr+"\n %v -->  %v", k,v)
+	 	fmt.Printf(" %v -->  %v \n", k,v)
 	}
-	tmpStr += "\n ============ ripefMap ======== \n" 
+	fmt.Println( "============ ripefMap ========" )
 	for k,v := range c.ripeConf {
-		tmpStr = fmt.Sprintf(tmpStr+"\n %v -->  %v", k,v)
+		fmt.Printf(" %v -->  %v \n", k,v)
 	}
-	return tmpStr
 }
 
 
@@ -179,6 +178,9 @@ func (c *Config)readAllConfig() error {
 		if err != nil {
 			errReport += fmt.Sprintf("\n %v", err)
 		}
+	}
+	if errReport == ""{
+		return nil
 	}
 	return errors.New(errReport)
 }
@@ -293,7 +295,7 @@ func handleErr(prefix string ,err error, isSeriou bool) ( errNotNull bool) {
 
 //judge if a name of config is legal
 func isLegalName(confName string) bool {
-	legalNameReg, _ := regexp.Compile(`^[a-zA-Z0-9_]*$`) 
+	legalNameReg, _ := regexp.Compile(`^[a-zA-Z0-9_]+$`) 
 	isLegal := legalNameReg.MatchString(confName)
 	return isLegal
 }
@@ -318,29 +320,39 @@ func isNumberType(confValue string) bool {
 
 //==========================================================
 
-func Test(){
+func Main(){
+	example()
+}
+
+func example(){
+	//create an config object by giving config path
 	tc,err := New("./config/conf/")
 	if err!=nil {
 		fmt.Println("the following is the errors during reading config file :")
 		fmt.Println(err)
 	}
+
+	//registe config by giving default value
 	tc.Register("t_string", "test", true)
 	tc.Register("t_string2", "test", true)
-	tc.Register("t_multi_str", "test", true)
+	tc.Register("t_muti_string", "test", true)
 	tc.Register("t_int", 0, true)
 	tc.Register("t_float", 0.1, true)
 	tc.Register("t_bool", false, true)
-	err = tc.Register("t_str_arry", make([]string,1), true)
-	if err != nil {
+	tc.Register("t_str_arry", make([]string,1), true)
+	tc.Register("t_int_array", make([]int, 1), true)
+	//register a new config key that don't exist in config file by setting isStrict = false
+	tc.Register("newCOnfig", "t_muti_string", false)
+	
+	//display the config in map
+	tc.Display()
+
+	//get a config value by configName
+	paragraph, err := tc.Get("t_muti_string")
+	if err!=nil {
 		fmt.Println(err)
+	}else{
+		fmt.Println(paragraph)
 	}
-	err = tc.Register("t_int_array", make([]int, 1), true)
-	if err != nil {
-		fmt.Println(err)
-	}
-	err = tc.Register("newCOnfig", "it is new config", false)
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(tc)
+	
 }
