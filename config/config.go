@@ -32,22 +32,30 @@ type Config struct{
 
 type ConfigMachine interface {
 	InitWithFilesPath(filesPath string) error
-	Register(keyName string , dfValue interface{}, isImportant bool) error
-	Get(keyName string) (value interface{}, err error)
 	Display() 
+	Register(keyName string , dfValue interface{}, isImportant bool)
+	getInterface(keyName string) (value interface{}, err error)
+	GetInt(keyName string) (value int, err error)
+	GetInts(keyName string) (value []int, err error)
+	GetString(keyName string) (value string, err error)
+	GetStrings(keyName string) (value []string, err error)
+	GetBool(keyName string) (value bool, err error)
 }
 
 //the mainly way of obtain a Config
 func New(confPath string)(ConfigMachine, error) {
 	newMachine := new(Config)
 	err := newMachine.InitWithFilesPath(confPath)
-	return newMachine,err
+	return newMachine, err
 }
 
 //=========== method in interface ===============
 func (c *Config) InitWithFilesPath(Configpath string) error{
 	if c.configPath != "" {
 		return errors.New("You can't init the Confi twice!")
+	}
+	if !strings.HasSuffix(c.configPath, "/") {
+		c.configPath += "/"
 	}
 	c.rawConf = make(map[string]string)
 	c.ripeConf = make(map[string]interface{}) 
@@ -56,34 +64,23 @@ func (c *Config) InitWithFilesPath(Configpath string) error{
 	return errList
 }
 
-func (c *Config) Get(keyName string)(value interface{}, err error){
-	if !isLegalName(keyName) {
-		err = errors.New("keyName is not right!")
-		return
-	}
-	value, ok := c.ripeConf[keyName]
-	if !ok {
-		err = fmt.Errorf("KeyName %v not found in config list!", keyName)
-	}
-	return 
-}
-
-func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)( err error ){
+func (c *Config) Register(confName string, dfValue interface{}, isStrict bool){
 	rawStr, ok := c.rawConf[confName]
+	tyName := reflect.TypeOf(dfValue).String()
+	var err error
 	if !ok && isStrict {	
 		err = fmt.Errorf("Config %v don't exit !", confName)
-		return
+		goto tail
 	}
 	if !ok && !isStrict {
 		c.ripeConf[confName] = dfValue
-		return
+		goto tail
 	}
-	tyName := reflect.TypeOf(dfValue).String()
 	switch tyName {
 	case "int":
 		tmpInt,err := strconv.Atoi(rawStr)
 		if err != nil {
-			return err
+			goto tail
 		}
 		c.ripeConf[confName] = tmpInt
 		break;
@@ -95,7 +92,7 @@ func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)( 
 	case "float64": 
 		tmpFloat,err := strconv.ParseFloat(rawStr, 64)
 		if err != nil {
-			return err
+			goto tail
 		}
 		c.ripeConf[confName] = tmpFloat
 		break;
@@ -103,7 +100,7 @@ func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)( 
 	case "bool":  
 		tmpBool, err := strconv.ParseBool(rawStr)
 		if err != nil {
-			return err  
+			goto tail 
 		}
 		c.ripeConf[confName] = tmpBool
 		break;
@@ -119,17 +116,21 @@ func (c *Config) Register(confName string, dfValue interface{}, isStrict bool)( 
 		for _,strInt := range tmpArry {
 			tmpInt, err := strconv.Atoi(strInt)
 			if err!=nil {
-				return err
+				goto tail
 			}
 			tmpIntArry = append(tmpIntArry, tmpInt)
 		}
 		c.ripeConf[confName] = tmpIntArry
 		break
-
 	default:
-		return  fmt.Errorf("Unsupport type : %v", tyName)
+		err = fmt.Errorf("Unsupport type : %v", tyName)
 	}
-	return nil
+	tail:
+	//handle your errors
+	if err!=nil{
+		errMsg := fmt.Sprintf("Error happen when register config %s , msg: %v", confName, err)
+		panic(errMsg)
+	}
 }
 
 //display the key name and value name in rawMap and ripeMap
@@ -144,7 +145,44 @@ func (c *Config) Display(){
 	}
 }
 
+//called by other GetXXX functions
+func (c *Config) getInterface(keyName string)(value interface{}, err error){
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not right!")
+		return
+	}
+	value, ok := c.ripeConf[keyName]
+	if !ok {
+		err = fmt.Errorf("KeyName %v not found in config list!", keyName)
+		return
+	}
+	return value,nil
+}
 
+func (c *Config)GetInt(keyName string) (value int, err error) {
+	any , err := c.getInterface(keyName)
+	return any.(int), err 
+}
+
+func (c *Config)GetInts(keyName string) (value []int, err error) {
+	any , err := c.getInterface(keyName)
+	return any.([]int), err 
+}
+
+func (c *Config)GetString(keyName string) (value string, err error) {
+	any , err := c.getInterface(keyName)
+	return any.(string), err 
+}
+
+func (c *Config)GetStrings(keyName string) (value []string, err error) {
+	any , err := c.getInterface(keyName)
+	return any.([]string), err
+}
+
+func (c *Config)GetBool(keyName string) (value bool, err error) {
+	any , err := c.getInterface(keyName)
+	return any.(bool), err 
+}
 
 
 //=============== tools function ==========
@@ -348,11 +386,10 @@ func example(){
 	tc.Display()
 
 	//get a config value by configName
-	paragraph, err := tc.Get("t_muti_string")
+	paragraph, err := tc.GetString("t_muti_string")
 	if err!=nil {
 		fmt.Println(err)
 	}else{
 		fmt.Println(paragraph)
 	}
-	
 }
