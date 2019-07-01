@@ -1,15 +1,15 @@
 #Go-config
 
-###概要
+### 概要
 
 这是一个实现配置功能的工具包,仍然在不断修改完善中，
 导入方法：import "github.com/BlackCarDriver/config"
 
 
-###支持配置类型
+### 支持配置类型
 整数，浮点数，布尔值，字符串，段落，字符串数组，整数数组 , json   
 
-###配置格式参考
+### 配置格式参考
     # match a string type, note that space in begin and end whill be trim
     t_string = it_is_a_string
     
@@ -54,9 +54,16 @@
     }
     
 
-### 使用案例
+### 使用例子
+    //a struct use to test getStruct function
+    type childen struct {
+	Age int `json:"age"`
+	Hobby []string `json:"hobby"`
+    }
 
-   	//create an config object by giving config path
+    func example(){
+    
+	//create an config object by giving config path
 	tc,err := NewConfig("./config/conf/")
 	if err!=nil {
 		fmt.Println("the following is the errors during reading config file :")
@@ -97,8 +104,7 @@
 	}else{
 		fmt.Println(child)
 	}
-
-
+    }
     
 
 ## 
