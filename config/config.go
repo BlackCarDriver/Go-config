@@ -11,6 +11,7 @@ import(
 	"strings"
 	"bufio"
 	"regexp"
+	"encoding/json"
 )
 
 //recorde the filename that alread read, each file can only read once
@@ -30,7 +31,7 @@ type Config struct{
 	ripeConf map[string]interface{}
 }
 
-type ConfigMachine interface {
+type ConfigMachine interface { 
 	InitWithFilesPath(filesPath string) error
 	Display() 
 	Register(keyName string , dfValue interface{}, isImportant bool)
@@ -40,10 +41,11 @@ type ConfigMachine interface {
 	GetString(keyName string) (value string, err error)
 	GetStrings(keyName string) (value []string, err error)
 	GetBool(keyName string) (value bool, err error)
+	GetStruct(keyName string, container interface{}) error
 }
 
 //the mainly way of obtain a Config
-func New(confPath string)(ConfigMachine, error) {
+func NewConfig(confPath string)(ConfigMachine, error) {
 	newMachine := new(Config)
 	err := newMachine.InitWithFilesPath(confPath)
 	return newMachine, err
@@ -135,14 +137,12 @@ func (c *Config) Register(confName string, dfValue interface{}, isStrict bool){
 
 //display the key name and value name in rawMap and ripeMap
 func (c *Config) Display(){
-	fmt.Println("============= rawConf ======== ")
-	for k,v := range c.rawConf {
-	 	fmt.Printf(" %v -->  %v \n", k,v)
-	}
-	fmt.Println( "============ ripefMap ========" )
+	fmt.Println( "======================== config lists ======================" )
 	for k,v := range c.ripeConf {
-		fmt.Printf(" %v -->  %v \n", k,v)
+		fmt.Printf("%-15v --> %v \n", k,v)
 	}
+	fmt.Println( "===========================================================" )
+	fmt.Println()
 }
 
 //called by other GetXXX functions
@@ -184,6 +184,16 @@ func (c *Config)GetBool(keyName string) (value bool, err error) {
 	return any.(bool), err 
 }
 
+func (c *Config)GetStruct(keyName string, container interface{}) error{ 
+	jsonText, err := c.GetString(keyName)
+	if err != nil {
+		return err
+	}
+	jsonText = "{" + jsonText
+	jsonText = jsonText + "}"
+	err = json.Unmarshal([]byte(jsonText), &container)
+	return err
+}
 
 //=============== tools function ==========
 
@@ -362,9 +372,15 @@ func Main(){
 	example()
 }
 
+//a struct use to test getStruct function
+type childen struct {
+	Age int `json:"age"`
+	Hobby []string `json:"hobby"`
+}
+
 func example(){
 	//create an config object by giving config path
-	tc,err := New("./config/conf/")
+	tc,err := NewConfig("./config/conf/")
 	if err!=nil {
 		fmt.Println("the following is the errors during reading config file :")
 		fmt.Println(err)
@@ -386,10 +402,25 @@ func example(){
 	tc.Display()
 
 	//get a config value by configName
+	fmt.Println("test muti link string :")
 	paragraph, err := tc.GetString("t_muti_string")
 	if err!=nil {
 		fmt.Println(err)
 	}else{
 		fmt.Println(paragraph)
 	}
+
+	//read struct from json syntax string
+	fmt.Println("test read struct :")
+	tc.Register("jsonText", "", true)
+	child := childen{}
+	err = tc.GetStruct("jsonText", &child)	
+	if err != nil {
+		fmt.Println(err)
+	}else{
+		fmt.Println(child)
+	}
 }
+
+
+
