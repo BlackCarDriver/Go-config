@@ -2,7 +2,6 @@ package config
 
 import(
 	"fmt"
-	"reflect"
 	"strconv"
 	"os"
 	"io"
@@ -18,28 +17,23 @@ import(
 var readHistory = make(map[string]bool)
 
 /*
-explain of Config struct:
-	configPath is the root path of config files, all files with suffix ".conf" will be parse into rawConf
-when the struct is init. 
-	rawConf is the map tmpely saving the string that read from config files, those string will not be
-used until you register then.
-	ripeConf is the map saving config value, those config is read from rawConf through Register()
+
 */
 type Config struct{
 	configPath string
+	isStrict bool
 	rawConf map[string]string 
-	ripeConf map[string]interface{}
 }
 
 type ConfigMachine interface { 
 	InitWithFilesPath(filesPath string) error
+	SetIsStrict(bool)
 	Display() 
-	Register(keyName string , dfValue interface{}, isImportant bool)
-	getInterface(keyName string) (value interface{}, err error)
 	GetInt(keyName string) (value int, err error)
 	GetInts(keyName string) (value []int, err error)
+	GetFloat(keyName string) (value float64, err error)
 	GetString(keyName string) (value string, err error)
-	GetStrings(keyName string) (value []string, err error)
+	GetStrings(keyName string) (value []string, err error) 
 	GetBool(keyName string) (value bool, err error)
 	GetStruct(keyName string, container interface{}) error
 }
@@ -51,6 +45,7 @@ func NewConfig(confPath string)(ConfigMachine, error) {
 	return newMachine, err
 }
 
+
 //=========== method in interface ===============
 func (c *Config) InitWithFilesPath(Configpath string) error{
 	if c.configPath != "" {
@@ -60,138 +55,169 @@ func (c *Config) InitWithFilesPath(Configpath string) error{
 		c.configPath += "/"
 	}
 	c.rawConf = make(map[string]string)
-	c.ripeConf = make(map[string]interface{}) 
 	c.configPath = Configpath;
 	errList := c.readAllConfig()
 	return errList
 }
 
-func (c *Config) Register(confName string, dfValue interface{}, isStrict bool){
-	rawStr, ok := c.rawConf[confName]
-	tyName := reflect.TypeOf(dfValue).String()
-	var err error
-	if !ok && isStrict {	
-		err = fmt.Errorf("Config %v don't exit !", confName)
-		goto tail
-	}
-	if !ok && !isStrict {
-		c.ripeConf[confName] = dfValue
-		goto tail
-	}
-	switch tyName {
-	case "int":
-		tmpInt,err := strconv.Atoi(rawStr)
-		if err != nil {
-			goto tail
-		}
-		c.ripeConf[confName] = tmpInt
-		break;
-
-	case "string":
-		c.ripeConf[confName] = rawStr
-		break;
-
-	case "float64": 
-		tmpFloat,err := strconv.ParseFloat(rawStr, 64)
-		if err != nil {
-			goto tail
-		}
-		c.ripeConf[confName] = tmpFloat
-		break;
-
-	case "bool":  
-		tmpBool, err := strconv.ParseBool(rawStr)
-		if err != nil {
-			goto tail 
-		}
-		c.ripeConf[confName] = tmpBool
-		break;
-
-	case "[]string":
-		tmpStr := strings.Trim(rawStr,`"`)
-		c.ripeConf[confName] = strings.Split(tmpStr, `","`)
-		break;
-
-	case "[]int":
-		tmpArry := strings.Split(rawStr,",")
-		tmpIntArry := make([]int, 0)
-		for _,strInt := range tmpArry {
-			tmpInt, err := strconv.Atoi(strInt)
-			if err!=nil {
-				goto tail
-			}
-			tmpIntArry = append(tmpIntArry, tmpInt)
-		}
-		c.ripeConf[confName] = tmpIntArry
-		break
-	default:
-		err = fmt.Errorf("Unsupport type : %v", tyName)
-	}
-	tail:
-	//handle your errors
-	if err!=nil{
-		errMsg := fmt.Sprintf("Error happen when register config %s , msg: %v", confName, err)
-		panic(errMsg)
-	}
+func (c *Config)SetIsStrict(strict bool){
+	c.isStrict = strict
 }
 
 //display the key name and value name in rawMap and ripeMap
 func (c *Config) Display(){
 	fmt.Println( "======================== config lists ======================" )
-	for k,v := range c.ripeConf {
-		fmt.Printf("%-15v --> %v \n", k,v)
+	for k,v := range c.rawConf {
+		fmt.Printf("----------- %v ----------- \n%-20v \n", k,v)
 	}
 	fmt.Println( "===========================================================" )
 	fmt.Println()
 }
 
-//called by other GetXXX functions
-func (c *Config) getInterface(keyName string)(value interface{}, err error){
-	if !isLegalName(keyName) {
-		err = errors.New("keyName is not right!")
-		return
-	}
-	value, ok := c.ripeConf[keyName]
-	if !ok {
-		err = fmt.Errorf("KeyName %v not found in config list!", keyName)
-		return
-	}
-	return value,nil
-}
-
 func (c *Config)GetInt(keyName string) (value int, err error) {
-	any , err := c.getInterface(keyName)
-	return any.(int), err 
+	rawStr, ok := "", false
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not legal!")
+		goto tail
+	}
+	rawStr, ok = c.rawConf[keyName]
+	if !ok {
+		err = errors.New("Can't not find config " + keyName)
+		goto tail
+	}
+	value,err = strconv.Atoi(rawStr)
+	if err != nil {
+		goto tail
+	}
+	tail:
+	if c.isStrict && err != nil {
+		panic(err)
+	}
+	return value, err
 }
 
 func (c *Config)GetInts(keyName string) (value []int, err error) {
-	any , err := c.getInterface(keyName)
-	return any.([]int), err 
+	tmpInt,rawStr,ok := -1, "", false
+	tmpStrArry:= make([]string, 0)
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not legal!")
+		goto tail
+	}
+	rawStr, ok = c.rawConf[keyName]
+	if !ok {
+		err = errors.New("Can't not find config " + keyName)
+		goto tail
+	}
+	tmpStrArry = strings.Split(rawStr,",")
+	for _,strInt := range tmpStrArry {
+		tmpInt, err = strconv.Atoi(strInt)
+		if err!=nil {
+				goto tail
+		}
+		value = append(value, tmpInt)
+	}
+	tail:
+	if c.isStrict && err != nil {
+		panic(err)
+	}
+	return value, err
 }
 
 func (c *Config)GetString(keyName string) (value string, err error) {
-	any , err := c.getInterface(keyName)
-	return any.(string), err 
+	rawStr, ok := "", false
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not legal!")
+		goto tail
+	}
+	rawStr, ok = c.rawConf[keyName]
+	if !ok {
+		err = errors.New("Can't not find config " + keyName)
+		goto tail
+	}
+	value = rawStr
+	tail:
+	if c.isStrict && err != nil {
+		panic(err)
+	}
+	return value, err
 }
 
 func (c *Config)GetStrings(keyName string) (value []string, err error) {
-	any , err := c.getInterface(keyName)
-	return any.([]string), err
+	rawStr, ok := "", false
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not legal!")
+		goto tail
+	}
+	rawStr, ok = c.rawConf[keyName]
+	if !ok {
+		err = errors.New("Can't not find config " + keyName)
+		goto tail
+	}
+	rawStr = strings.Trim(rawStr,`"`)
+    value = strings.Split(rawStr, `","`)
+	tail:
+	if c.isStrict && err != nil {
+		panic(err)
+	}
+	return value, err
 }
 
 func (c *Config)GetBool(keyName string) (value bool, err error) {
-	any , err := c.getInterface(keyName)
-	return any.(bool), err 
+	rawStr, ok, tmpBool := "", false, false
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not legal!")
+		goto tail
+	}
+	rawStr, ok = c.rawConf[keyName]
+	if !ok {
+		err = errors.New("Can't not find config " + keyName)
+		goto tail
+	}
+	tmpBool, err = strconv.ParseBool(rawStr)
+	if err != nil {
+		goto tail 
+	}
+	value = tmpBool
+	tail:
+	if c.isStrict && err != nil {
+		panic(err)
+	}
+	return value, err
+}
+
+func (c *Config)GetFloat(keyName string) (value float64, err error) {
+	rawStr, ok := "", false
+	if !isLegalName(keyName) {
+		err = errors.New("keyName is not legal!")
+		goto tail
+	}
+	rawStr, ok = c.rawConf[keyName]
+	if !ok {
+		err = errors.New("Can't not find config " + keyName)
+		goto tail
+	}
+	value, err = strconv.ParseFloat(rawStr, 64)
+	if err != nil {
+		goto tail
+	}
+	tail:
+	if c.isStrict && err != nil {
+		panic(err)
+	}
+	return value, err
 }
 
 func (c *Config)GetStruct(keyName string, container interface{}) error{ 
 	jsonText, err := c.GetString(keyName)
 	if err != nil {
-		return err
+		goto tail
 	}
-	jsonText = "{" + jsonText
-	jsonText = jsonText + "}"
+	jsonText = "{" + jsonText + "}"
 	err = json.Unmarshal([]byte(jsonText), &container)
+	tail:
+	if c.isStrict && err!=nil {
+		panic(err)
+	}
 	return err
 }
 
